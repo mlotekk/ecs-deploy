@@ -397,11 +397,26 @@ function updateService() {
                 | jq -r '.taskArns[]')
 
             if [[ ! -z $RUNNING_TASKS ]] ; then
-                RUNNING=$($AWS_ECS describe-tasks --cluster "$CLUSTER" --tasks $RUNNING_TASKS \
-                    | jq ".tasks[]| if .taskDefinitionArn == \"$NEW_TASKDEF\" then . else empty end|.lastStatus" \
-                    | grep -e "RUNNING") || :
+                SUCCESS=true
+                count=0
+                RUNNING_TASKS_100=""
+                for task in $RUNNING_TASKS; do
+                    count=$((count+1))
+                    RUNNING_TASKS_100="$RUNNING_TASKS_100 $task"
+                    if [ $(( $count % 100 )) -eq 0 ]; then
+                        RUNNING=$($AWS_ECS describe-tasks --cluster "$CLUSTER" --tasks $RUNNING_TASKS_100 \
+                        | jq ".tasks[]| if .taskDefinitionArn == \"$NEW_TASKDEF\" then . else empty end|.lastStatus" \
+                        | grep -e "RUNNING") || SUCCESS=false
+                        RUNNING_TASKS_100=""
+                    fi
+                done
+                if [ "$RUNNING_TASKS_100" ]; then
+                    RUNNING=$($AWS_ECS describe-tasks --cluster "$CLUSTER" --tasks $RUNNING_TASKS_100 \
+                        | jq ".tasks[]| if .taskDefinitionArn == \"$NEW_TASKDEF\" then . else empty end|.lastStatus" \
+                        | grep -e "RUNNING") || SUCCESS=false
+                fi
 
-                if [ "$RUNNING" ]; then
+                if $SUCCESS; then
                     echo "Service updated successfully, new task definition running.";
 
                     if [[ $MAX_DEFINITIONS -gt 0 ]]; then
